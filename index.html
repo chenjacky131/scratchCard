@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="ie=edge">
+  <title>Document</title>
+  <style>
+  .card {
+    width: 375px;
+    height: 140px;
+    background: url('award.jpg');
+    background-size: 375px 140px;
+  }
+  .card canvas {
+      width: 375px;
+      height: 140px;
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <canvas id="canvas" width="750" height="280"></canvas>
+  </div>
+  <script>
+    function ScratchCard(config) {
+      //  默认配置
+      this.config = {
+        //  canvas元素
+        canvas: null,
+        //  直接全部刮开的百分比
+        showAllPercent: 65,
+        // 图片图层
+        coverImg: null,
+        //  纯色图层，如果图片图层不为null，则纯色图层失效
+        coverColor: null,
+        //  全部刮开回调
+        doneCallback: null,
+        //  擦除半径
+        radius: 20,
+        //  屏幕倍数
+        pixelRatio: 1,
+        //  展示全部的淡出效果时间（ms）
+        fadeOut: 2000
+      }
+      Object.assign(this.config, config);
+      this.canvas = this.config.canvas;
+      this.ctx = null;
+      this.offsetX = null;
+      this.offsetY = null;
+      // 是否在画布上处于按下状态
+      this.isDown = false;
+      //  是否已完成刮刮卡
+      this.done = false;
+      //  是否结束刮涂层回调
+      this.finish = false;
+      this._init();
+    }
+    ScratchCard.prototype = {
+      constructor: ScratchCard,
+      // 初始化
+      _init: function(){
+        var that = this;
+        this.ctx = this.canvas.getContext('2d');
+        this.offsetX = this.canvas.offsetLeft;
+        this.offsetY = this.canvas.offsetTop;
+        this._addEvent();
+        if(this.config.coverImg){
+          // 如果设置的图片图层
+          var coverImg = new Image();
+          coverImg.src = this.config.coverImg;
+          //  读取图像
+          coverImg.onload = function(){
+            //  绘制图像
+            that.ctx.drawImage(coverImg, 0, 0,that.canvas.width, that.canvas.height);
+            that.ctx.globalCompositeOperation = 'destination-out';
+          }
+        }else{
+          //  如果没有图片图层
+          this.ctx.fillStyle = this.config.coverColor;
+          this.ctx.fillRect(0, 0,this.canvas.width, this.canvas.height);
+          this.ctx.globalCompositeOperation = 'destination-out';
+        }
+      },
+      //  添加事件
+      _addEvent: function() {
+        this.canvas.addEventListener('touchstart', this._eventDown.bind(this), { passive: false});
+        this.canvas.addEventListener('touchend', this._eventUp.bind(this), { passive: false});
+        this.canvas.addEventListener('touchmove', this._scratch.bind(this), { passive: false});
+        this.canvas.addEventListener('mousedown', this._eventDown.bind(this), { passive: false});
+        this.canvas.addEventListener('mouseup', this._eventUp.bind(this), { passive: false});
+        this.canvas.addEventListener('mousemove', this._scratch.bind(this), { passive: false});
+      },
+      _eventDown: function(e){
+        e.preventDefault();
+        this.isDown = true;
+      },
+      _eventUp: function(e) {
+        e.preventDefault();
+        this.isDown = false;
+      },
+      // 刮涂层
+      _scratch: function(e) {
+        e.preventDefault();
+        var that = this;
+        if(!this.isDone && this.isDown){
+          if(e.changedTouches){
+            e = e.changedTouches[e.changedTouches.length - 1];
+          }
+          var x = (e.clientX + document.body.scrollLeft || e.pageX) - this.offsetX || 0,
+              y = (e.clientY + document.body.scrollTop || e.pageY) - this.offsetY || 0;
+          with(this.ctx){
+            beginPath();
+            arc(x * that.config.pixelRatio, y * that.config.pixelRatio, that.config.radius * that.config.pixelRatio, 0, Math.PI * 2);
+            fill();
+          }
+          if(this._getFilledPercentage() > this.config.showAllPercent){
+            this._scratchAll();
+          }
+        }
+      },
+      _scratchAll: function() {
+        var that = this;
+        this.done = true;
+
+        if(this.config.fadeOut > 0){
+          //  先使用CSS opacity清楚，再使用canvas清楚
+          this.canvas.style.transition = 'all ' + this.config.fadeOut / 1000 + 's linear';
+          this.canvas.style.opacity = '0';
+          setTimeout(function(){
+            that._clear();
+          }, this.config.fadeOut)
+        }else{
+          //  直接使用canvas清楚
+          this._clear();
+        }
+        //  执行回调
+        if(!this.finish){
+          this.config.doneCallback && this.config.doneCallback();
+        }
+        this.finish = true;
+      },
+      _clear() {
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+      },
+      //  获取刮开区域百分比
+      _getFilledPercentage: function(){
+        var imgData = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+        //  存储当前canvas画布的全部像素点信息
+        var pixels = imgData.data;
+        //  存储当前canvas画布的透明像素信息
+        var transPixels = [];
+        //  遍历全部像素点信息
+        for(var i = 0; i < pixels.length; i+=4){
+          if(pixels[i + 3] < 128){
+            //  把透明像素点添加到transPixels里
+            transPixels.push(pixels[i + 3]);
+          }
+        }
+        //  计算透明像素点的占比
+        return (transPixels.length / (pixels.length / 4) * 100).toFixed(2);
+      }
+    }
+    window.addEventListener('touchmove', function(e){
+      e.preventDefault();
+    }, {passive:false});
+
+    var scratchCardObj = new ScratchCard({
+      canvas: document.getElementById('canvas'),
+      coverImg: 'scratch.jpg',
+      pixelRatio: 2,
+      doneCallback: function() {
+        alert('恭喜中奖');
+      }
+    })
+  </script>
+</body>
+</html>
